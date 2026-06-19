@@ -1,73 +1,89 @@
 #!/usr/bin/env python3
 
-from collections import OrderedDict
-import re
 import sys
+import re
 
 
-def normalize_domain(domain):
-    # supprime les suffixes type _1, _2, etc.
+def normalize(domain):
     return re.sub(r'_\d+$', '', domain)
 
 
-def collapse_repeats(domains):
-    # enlève les répétitions consécutives uniquement
-    collapsed = []
-    for dom in domains:
-        if not collapsed or dom != collapsed[-1]:
-            collapsed.append(dom)
-    return collapsed
+def load_reference(ref_file):
+
+    line = open(ref_file).readline().strip()
+    arch = line.split("$")[1]
+
+    return set(normalize(d) for d in arch.split("#"))
 
 
-def main(input_file, output_file):
+def main(input_file, ref_file, output_file):
 
-    architectures = OrderedDict()
+    ref_domains = load_reference(ref_file)
 
-    try:
-        with open(input_file) as f:
-            for line in f:
+    print("[INFO] Reference domains:", ref_domains)
 
-                line = line.strip()
-                if not line:
-                    continue
+    proteins = {}
 
-                # prend la partie avant la première virgule
-                header = line.split(",")[0]
+    with open(input_file) as f:
+        for line in f:
 
-                # on ne garde que les lignes contenant $
-                if "$" not in header:
-                    continue
+            line = line.strip()
+            if not line:
+                continue
 
-                arch = header.split("$")[-1]
+            if "$" not in line:
+                continue
 
-                domains = [
-                    normalize_domain(x)
-                    for x in arch.split("#")
-                    if x != ""
-                ]
+            # ----------------------------
+            # ID = EXACTEMENT le champ avant la virgule finale
+            # MAIS SANS longueur
+            # ----------------------------
 
-                domains = collapse_repeats(domains)
+            full = line.split(",")[0]
 
-                normalized_arch = "#".join(domains)
+            # enlever uniquement ",1234" à la fin
+            prot = full
 
-                if normalized_arch not in architectures:
-                    architectures[normalized_arch] = normalized_arch.replace("#", "_")
+            # ----------------------------
+            # domains
+            # ----------------------------
+            arch = line.split("$")[1].split(",")[0]
 
-    except FileNotFoundError:
-        print(f"ERROR: input file not found -> {input_file}")
-        sys.exit(1)
+            doms = {normalize(d) for d in arch.split("#")}
 
+            proteins[prot] = doms
+
+    # ----------------------------
+    # selection
+    # ----------------------------
+    colored = []
+
+    for prot, doms in proteins.items():
+
+        if ref_domains.issubset(doms):
+            colored.append(prot)
+
+    # ----------------------------
+    # iTOL output
+    # ----------------------------
     with open(output_file, "w") as out:
-        for arch, label in architectures.items():
-            out.write(f"{arch} {label}\n")
 
-    print(f"{len(architectures)} unique architectures written to {output_file}")
+        out.write("DATASET_COLORSTRIP\n")
+        out.write("SEPARATOR TAB\n")
+        out.write("DATASET_LABEL\tArchitecture\n")
+        out.write("COLOR\t#FF0000\n\n")
+        out.write("DATA\n")
+
+        for prot in colored:
+            out.write(f"{prot}\t#FF0000\n")
+
+    print(f"[INFO] Proteins colored: {len(colored)}")
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 3:
-        print("Usage: python domain_arch.py <input_file> <output_file>")
+    if len(sys.argv) != 4:
+        print("Usage: python domain_arch.py <input.txt> <ref.txt> <output.txt>")
         sys.exit(1)
 
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
